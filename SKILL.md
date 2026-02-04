@@ -1,6 +1,6 @@
 ---
 name: github-actions
-description: Write and modify GitHub Actions workflows and custom actions. Use when working with .github/workflows files, CI/CD pipelines, workflow triggers, jobs, steps, secrets, runners, or creating custom actions. Covers workflow syntax, expressions, contexts, events, and deployment.
+description: Write and modify GitHub Actions workflows and custom actions. Use when setting up CI/CD, creating workflows, running scripts with GitHub Actions, or working with .github/workflows files. Use when the user mentions GitHub Actions, Actions workflow, CI pipeline, automate builds, or wants to run scripts on push/PR. Covers workflow triggers, jobs, steps, secrets, runners, matrix builds, and deployment automation.
 allowed-tools: Read Edit Write Grep Glob Bash
 ---
 
