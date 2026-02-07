@@ -1,6 +1,6 @@
 ---
 name: github-actions
-description: Write and modify GitHub Actions workflows and custom actions. Use when setting up CI/CD, creating workflows, running scripts with GitHub Actions, or working with .github/workflows files. Use when the user mentions GitHub Actions, Actions workflow, CI pipeline, automate builds, or wants to run scripts on push/PR. Covers workflow triggers, jobs, steps, secrets, runners, matrix builds, and deployment automation.
+description: Write and modify GitHub Actions workflows and custom actions. Covers CI/CD, workflow triggers, jobs, steps, secrets, runners, matrix builds, caching, artifacts, environments, and reusable workflows. Use for: OIDC/OpenID Connect authentication; deploying to AWS (ECS, Lambda, S3), Azure (AKS, App Service), GCP (GKE); workflow commands (GITHUB_OUTPUT, GITHUB_ENV, GITHUB_STEP_SUMMARY, GITHUB_PATH); publishing to npm, PyPI, Docker Hub, GHCR, GitHub Packages, Maven Central; language CI for Node.js, Python, Java/Maven/Gradle, Go, Rust, Ruby, .NET, Swift; service containers (PostgreSQL, Redis); migrating from Jenkins, Travis CI, CircleCI, GitLab CI/CD, Azure DevOps; enterprise features (ARC, runner groups, larger runners); limits, quotas, billing, concurrency, permissions, and debug logging.
 allowed-tools: Read Edit Write Grep Glob Bash
 ---
 
@@ -253,19 +253,7 @@ steps:
 
 ## Runners
 
-### GitHub-Hosted Runners
-
-| Label | OS | CPUs | RAM |
-|-------|-----|------|-----|
-| `ubuntu-latest` | Ubuntu 24.04 | 4 (public) / 2 (private) | 16GB / 7GB |
-| `windows-latest` | Windows Server 2025 | 4 / 2 | 16GB / 7GB |
-| `macos-latest` | macOS 15 (arm64) | 3 | 7GB |
-
-### Self-Hosted Runners
-
-```yaml
-runs-on: [self-hosted, linux, x64]
-```
+Common labels: `ubuntu-latest`, `windows-latest`, `macos-latest`. Self-hosted: `runs-on: [self-hosted, linux, x64]`. See `references/RUNNERS.md` for full specs.
 
 ## Permissions
 
@@ -322,20 +310,6 @@ jobs:
       name: production
       url: https://example.com
     runs-on: ubuntu-latest
-```
-
-## OIDC Authentication (AWS)
-
-```yaml
-permissions:
-  id-token: write
-  contents: read
-
-steps:
-  - uses: aws-actions/configure-aws-credentials@v4
-    with:
-      role-to-assume: arn:aws:iam::123456789:role/my-role
-      aws-region: us-east-1
 ```
 
 ## Reusable Workflows
@@ -407,6 +381,51 @@ on:
       - 'v*'
 ```
 
+## Workflow Commands Quick Reference
+
+```bash
+# Step outputs (use in later steps via steps.<id>.outputs.<name>)
+echo "name=value" >> "$GITHUB_OUTPUT"
+
+# Set environment variable for subsequent steps
+echo "VAR_NAME=value" >> "$GITHUB_ENV"
+
+# Job summary (supports markdown)
+echo "### Build Results :rocket:" >> "$GITHUB_STEP_SUMMARY"
+echo "| Test | Status |" >> "$GITHUB_STEP_SUMMARY"
+echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+echo "| Unit | Passed |" >> "$GITHUB_STEP_SUMMARY"
+
+# Add to PATH for subsequent steps
+echo "/path/to/tool" >> "$GITHUB_PATH"
+
+# Log annotations
+echo "::error file=app.js,line=10::Something failed"
+echo "::warning::Deprecation notice"
+echo "::notice::FYI message"
+
+# Mask a value from logs
+echo "::add-mask::$SECRET_VALUE"
+```
+
+See `references/WORKFLOW-COMMANDS.md` for full details including `::group::`, `::debug::`, multiline values, and GITHUB_STATE.
+
+## Key Limits
+
+| Limit | Value |
+|-------|-------|
+| Workflow run time | 35 days |
+| Job execution time | 6 hours (self-hosted: unlimited) |
+| Matrix combinations | 256 per workflow |
+| Concurrent jobs (Free) | 20 (macOS: 5) |
+| Concurrent jobs (Team/Enterprise) | 60 (macOS: 5) |
+| Workflow file size | 512 KB |
+| Caches total per repo | 10 GB |
+| Artifact retention | 90 days (configurable) |
+| Log retention | 400 days (configurable to 90) |
+
+See `references/LIMITS.md` for full limits including API rates and storage quotas.
+
 ## Troubleshooting
 
 1. **Workflow not triggering**: Check branch/path filters, verify file is in `.github/workflows/`
@@ -414,14 +433,26 @@ on:
 3. **Secret not found**: Verify secret name matches exactly (case-sensitive)
 4. **Step output empty**: Ensure using `>> "$GITHUB_OUTPUT"` (not deprecated set-output)
 5. **Matrix job failing**: Check `exclude`/`include` syntax and values
+6. **Debug logging**: Re-run workflow with `ACTIONS_RUNNER_DEBUG: true` or `ACTIONS_STEP_DEBUG: true`
 
 ## References
 
-For detailed information, see:
-- `references/WORKFLOW-SYNTAX.md` - Full workflow syntax reference
-- `references/EXPRESSIONS.md` - Contexts and functions
-- `references/TRIGGERS.md` - Event details and filtering
-- `references/ACTIONS.md` - Creating custom actions
-- `references/SECURITY.md` - Secrets, OIDC, security practices
-- `references/RUNNERS.md` - Runner configuration
-- `references/PATTERNS.md` - AWS deployment and language patterns
+Core:
+- `references/WORKFLOW-SYNTAX.md` - Full workflow YAML syntax
+- `references/EXPRESSIONS.md` - Contexts, functions, operators
+- `references/TRIGGERS.md` - Event types and filtering
+- `references/WORKFLOW-COMMANDS.md` - GITHUB_OUTPUT, GITHUB_ENV, annotations, job summaries
+- `references/LIMITS.md` - Time limits, quotas, rate limits by plan
+
+Build and deploy:
+- `references/ACTIONS.md` - Creating custom actions (JS, Docker, composite)
+- `references/RUNNERS.md` - Runner specs, self-hosted configuration
+- `references/PATTERNS.md` - Common workflow patterns
+- `references/LANGUAGE-CI.md` - CI setup per language (Node, Python, Java, Go, Rust, Ruby, .NET, Swift)
+- `references/PUBLISHING.md` - Publish to npm, PyPI, Docker Hub, GHCR, Maven Central
+- `references/CLOUD-DEPLOYMENTS.md` - Deploy to AWS, Azure, GCP with OIDC
+
+Security and ops:
+- `references/SECURITY.md` - Secrets, OIDC (AWS/Azure/GCP), attestations, script injection
+- `references/MIGRATION.md` - Migrate from Jenkins, Travis CI, CircleCI, GitLab, Azure DevOps
+- `references/ENTERPRISE.md` - ARC, runner groups, larger runners, billing, private networking

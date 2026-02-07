@@ -244,21 +244,162 @@ Or with wildcards:
 
 ### Azure OIDC
 
+**1. Create an Entra ID Application and Service Principal**
+
+Register an application in Microsoft Entra ID (formerly Azure AD):
+- Go to Azure Portal > Microsoft Entra ID > App registrations > New registration
+- Note the Application (client) ID and Directory (tenant) ID
+
+**2. Add Federated Credentials**
+
+In the app registration, go to Certificates & secrets > Federated credentials > Add credential:
+- Federated credential scenario: GitHub Actions deploying Azure resources
+- Organization: your GitHub org or username
+- Repository: your repository name
+- Entity type: Branch, Environment, Pull Request, or Tag
+- GitHub branch name: `main` (or your target)
+- Issuer: `https://token.actions.githubusercontent.com`
+- Audience: `api://AzureADTokenExchange` (recommended default)
+
+**3. Assign Roles to the Service Principal**
+
+Grant the service principal access to Azure resources:
+- Go to the target resource (e.g., Resource Group) > Access control (IAM) > Add role assignment
+- Assign the appropriate role (e.g., Contributor) to the app registration's service principal
+
+**4. Subject Claim Format**
+
+Azure federated credentials match on the subject claim from the OIDC token:
+- Branch: `repo:OWNER/REPO:ref:refs/heads/BRANCH`
+- Environment: `repo:OWNER/REPO:environment:ENVIRONMENT_NAME`
+- Pull request: `repo:OWNER/REPO:pull_request`
+- Tag: `repo:OWNER/REPO:ref:refs/tags/TAG`
+
+**5. Store Configuration as GitHub Secrets**
+
+Create these repository secrets (these are not sensitive credentials, but secrets keep them out of logs):
+- `AZURE_CLIENT_ID` - Application (client) ID
+- `AZURE_TENANT_ID` - Directory (tenant) ID
+- `AZURE_SUBSCRIPTION_ID` - Azure subscription ID
+
+**6. Use in Workflow**
+
 ```yaml
-- uses: azure/login@v1
-  with:
-    client-id: ${{ secrets.AZURE_CLIENT_ID }}
-    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+name: Deploy to Azure
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - run: |
+          az account show
+          az group list
 ```
 
 ### GCP OIDC
 
+**1. Create a Workload Identity Pool**
+
+```bash
+gcloud iam workload-identity-pools create "github-pool" \
+  --project="PROJECT_ID" \
+  --location="global" \
+  --display-name="GitHub Actions Pool"
+```
+
+**2. Create a Workload Identity Provider**
+
+```bash
+gcloud iam workload-identity-pools providers create-oidc "github-provider" \
+  --project="PROJECT_ID" \
+  --location="global" \
+  --workload-identity-pool="github-pool" \
+  --display-name="GitHub Provider" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
+  --issuer-uri="https://token.actions.githubusercontent.com"
+```
+
+**3. Bind a Service Account**
+
+Allow the GitHub OIDC provider to impersonate a GCP service account:
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding "SA_NAME@PROJECT_ID.iam.gserviceaccount.com" \
+  --project="PROJECT_ID" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/attribute.repository/OWNER/REPO"
+```
+
+To restrict to a specific branch, use the `subject` attribute instead:
+
+```bash
+--member="principal://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/subject/repo:OWNER/REPO:ref:refs/heads/main"
+```
+
+**4. Subject Claim Format**
+
+GCP matches on the `subject` claim from the OIDC token (same format as other providers):
+- Branch: `repo:OWNER/REPO:ref:refs/heads/BRANCH`
+- Environment: `repo:OWNER/REPO:environment:ENVIRONMENT_NAME`
+- Pull request: `repo:OWNER/REPO:pull_request`
+- Tag: `repo:OWNER/REPO:ref:refs/tags/TAG`
+
+**5. Get the Workload Identity Provider Resource Name**
+
+```bash
+gcloud iam workload-identity-pools providers describe "github-provider" \
+  --project="PROJECT_ID" \
+  --location="global" \
+  --workload-identity-pool="github-pool" \
+  --format="value(name)"
+```
+
+This returns: `projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider`
+
+**6. Use in Workflow**
+
 ```yaml
-- uses: google-github-actions/auth@v2
-  with:
-    workload_identity_provider: 'projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID'
-    service_account: 'sa@project.iam.gserviceaccount.com'
+name: Deploy to GCP
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'SA_NAME@PROJECT_ID.iam.gserviceaccount.com'
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: |
+          gcloud auth login --brief --cred-file="${{ steps.auth.outputs.credentials_file_path }}"
+          gcloud services list
 ```
 
 ## Script Injection Prevention
@@ -468,7 +609,9 @@ jobs:
 
 ## Artifact Attestation
 
-Create SLSA provenance for build artifacts.
+Create SLSA provenance and SBOM attestations for build artifacts and container images.
+
+### Build Provenance for Binaries
 
 ```yaml
 permissions:
@@ -479,10 +622,158 @@ permissions:
 steps:
   - uses: actions/checkout@v5
   - run: npm run build
-  - uses: actions/attest-build-provenance@v1
+  - uses: actions/attest-build-provenance@v3
     with:
       subject-path: 'dist/*.js'
 ```
+
+### Build Provenance for Container Images
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+  attestations: write
+  packages: write
+
+steps:
+  - uses: actions/checkout@v5
+
+  - uses: docker/login-action@v3
+    with:
+      registry: ghcr.io
+      username: ${{ github.actor }}
+      password: ${{ secrets.GITHUB_TOKEN }}
+
+  - id: push
+    uses: docker/build-push-action@v6
+    with:
+      push: true
+      tags: ghcr.io/${{ github.repository }}:latest
+
+  - uses: actions/attest-build-provenance@v3
+    with:
+      subject-name: ghcr.io/${{ github.repository }}
+      subject-digest: ${{ steps.push.outputs.digest }}
+      push-to-registry: true
+```
+
+### SBOM Attestation
+
+Generate signed SBOM (Software Bill of Materials) attestations using `actions/attest-sbom`.
+
+**Binary SBOM attestation:**
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+  attestations: write
+
+steps:
+  - uses: actions/checkout@v5
+  - run: npm run build
+
+  - uses: anchore/sbom-action@v0
+    with:
+      path: ./dist
+      output-file: sbom.spdx.json
+
+  - uses: actions/attest-sbom@v2
+    with:
+      subject-path: 'dist/my-app'
+      sbom-path: 'sbom.spdx.json'
+```
+
+**Container image SBOM attestation:**
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+  attestations: write
+  packages: write
+
+steps:
+  - id: push
+    uses: docker/build-push-action@v6
+    with:
+      push: true
+      tags: ghcr.io/${{ github.repository }}:latest
+
+  - uses: anchore/sbom-action@v0
+    with:
+      image: ghcr.io/${{ github.repository }}:latest
+      output-file: sbom.spdx.json
+
+  - uses: actions/attest-sbom@v2
+    with:
+      subject-name: ghcr.io/${{ github.repository }}
+      subject-digest: ${{ steps.push.outputs.digest }}
+      sbom-path: 'sbom.spdx.json'
+      push-to-registry: true
+```
+
+### Verifying Attestations with GitHub CLI
+
+**Verify a binary:**
+
+```bash
+gh attestation verify dist/my-app -R OWNER/REPO
+```
+
+**Verify a container image:**
+
+```bash
+docker login ghcr.io
+gh attestation verify oci://ghcr.io/OWNER/REPO:tag -R OWNER/REPO
+```
+
+**Verify an SBOM attestation (SPDX):**
+
+```bash
+gh attestation verify dist/my-app \
+  -R OWNER/REPO \
+  --predicate-type https://spdx.dev/Document/v2.3
+```
+
+**Verify with JSON output for inspection:**
+
+```bash
+gh attestation verify dist/my-app \
+  -R OWNER/REPO \
+  --predicate-type https://spdx.dev/Document/v2.3 \
+  --format json \
+  --jq '.[].verificationResult.statement.predicate'
+```
+
+### Enforcing Attestations
+
+Use `gh attestation verify` in deployment pipelines to gate deployments on valid attestations:
+
+```yaml
+deploy:
+  needs: build
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: my-artifact
+
+    - name: Verify attestation before deploy
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh attestation verify my-app \
+          -R ${{ github.repository }}
+
+    - name: Deploy
+      run: ./deploy.sh
+```
+
+For organization-wide enforcement, repository admins can require artifact attestations
+via repository rulesets (Settings > Rules > Rulesets), which block artifacts without
+valid provenance from being deployed.
 
 ## Security Checklist
 
