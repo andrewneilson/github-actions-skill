@@ -1,6 +1,6 @@
 ---
 name: github-actions
-description: Write and modify GitHub Actions workflows and custom actions. Covers CI/CD, workflow triggers, jobs, steps, secrets, runners, matrix builds, caching, artifacts, environments, and reusable workflows. Use for: OIDC/OpenID Connect authentication; deploying to AWS (ECS, Lambda, S3), Azure (AKS, App Service), GCP (GKE); workflow commands (GITHUB_OUTPUT, GITHUB_ENV, GITHUB_STEP_SUMMARY, GITHUB_PATH); publishing to npm, PyPI, Docker Hub, GHCR, GitHub Packages, Maven Central; language CI for Node.js, Python, Java/Maven/Gradle, Go, Rust, Ruby, .NET, Swift; service containers (PostgreSQL, Redis); migrating from Jenkins, Travis CI, CircleCI, GitLab CI/CD, Azure DevOps; enterprise features (ARC, runner groups, larger runners); limits, quotas, billing, concurrency, permissions, and debug logging.
+description: 'Write and modify GitHub Actions workflows and custom actions. Covers CI/CD, workflow triggers, jobs, steps, secrets, runners, matrix builds, caching, artifacts, environments, and reusable workflows.'
 allowed-tools: Read Edit Write Grep Glob Bash
 ---
 
